@@ -6,7 +6,7 @@ import { HTTPException } from "hono/http-exception"
 import Stripe from "stripe"
 
 export const paymentRouter = router({
-  // Procedure to start the upgrade process
+  // Procedure to start the upgrade process (Called from your 'Upgrade' button)
   createCheckoutSession: privateProcedure.mutation(async ({ c, ctx }) => {
     const { user } = ctx
 
@@ -25,9 +25,10 @@ export const paymentRouter = router({
   }),
 
   // THE WEBHOOK HANDLER
-  // This must be a publicProcedure so Stripe can send events to it
+  // Stripe calls this endpoint directly to confirm payments
   stripeWebhook: publicProcedure.mutation(async ({ c }) => {
-    const body = await c.req.text()
+    // CRITICAL: We MUST use .raw.text() for Stripe signature verification
+    const body = await c.req.raw.text()
     const signature = c.req.header("stripe-signature")
 
     if (!signature) {
