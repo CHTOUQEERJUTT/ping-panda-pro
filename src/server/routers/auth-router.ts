@@ -7,27 +7,34 @@ import { publicProcedure } from "../procedures"
 export const dynamic = "force-dynamic"
 
 export const authRouter = router({
-  getDatabaseSyncStatus: publicProcedure.query(async ({ c, ctx }) => {
+  getDatabaseSyncStatus: publicProcedure.query(async ({ c }) => {
     const auth = await currentUser()
+
     if (!auth) {
-        return c.json({ isSynced: false })
+      return c.json({ isSynced: false })
     }
-    
 
+    // 1. Check if user exists
     const user = await db.user.findFirst({
-        where:{externalId:auth.id}
+      where: { externalId: auth.id },
     })
-    console.log('USER IN DB:', user);
 
+    console.log('USER IN DB:', user)
+
+    // 2. If not, create them and WAIT for it to finish
     if (!user) {
-        await db.user.create({
-            data:{
-                quotaLimit:100,
-                externalId:auth.id,
-                email: auth.emailAddresses[0].emailAddress,
-            },
-        })
+      await db.user.create({
+        data: {
+          quotaLimit: 100,
+          externalId: auth.id,
+          email: auth.emailAddresses[0].emailAddress,
+        },
+      })
+      // Optional: Return true immediately after creation
+      return c.json({ isSynced: true })
     }
+
+    // 3. User already exists
     return c.json({ isSynced: true })
   }),
 })

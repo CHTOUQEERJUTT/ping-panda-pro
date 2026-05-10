@@ -1,157 +1,195 @@
-import { json } from "stream/consumers";
+import { db } from "@/db";
 import { router } from "../__internals/router";
 import { privateProcedure } from "../procedures";
-import {startOfDay, startOfMonth, startOfWeek} from "date-fns"
-import { db } from "@/db";
+import { startOfDay, startOfMonth, startOfWeek } from "date-fns";
 import { z } from "zod";
-import {CATEGORY_NAME_VALIDATOR} from "@/lib/validtors/category-name-validator"
+import { CATEGORY_NAME_VALIDATOR } from "@/lib/validtors/category-name-validator";
 import { parseColor } from "@/utils";
 import { HTTPException } from "hono/http-exception";
+import { FREE_QUOTA, PRO_QUOTA } from "@/config";
 
 export const categoryRouter = router({
-    getEventCategories:privateProcedure.query(async({c,ctx})=>{
-        const now = new Date()
-        const firstDayOfMonth = startOfMonth(now)
+  getEventCategories: privateProcedure.query(async ({ c, ctx }) => {
+    const now = new Date();
+    const firstDayOfMonth = startOfMonth(now);
 
-        const categories = await db.eventCategory.findMany({
-            where:{userId:ctx.user.id},
-            select:{
-                id: true,
-                name: true,
-                emoji: true,
-                color: true,
-                updatedAt: true,
-                createdAt: true,
-                events:{
-                    where:{
-                        createdAt:{gte:firstDayOfMonth}
-                    },
-                    select:{
-                        fields:true,
-                        createdAt:true
-                    }
-                },
-                _count: {
-                    select: {
-                      events: {
-                        where: { createdAt: { gte: firstDayOfMonth } },
-                      },
-                    },
-                  },
+    const categories = await db.eventCategory.findMany({
+      where: { userId: ctx.user.id },
+      select: {
+        id: true,
+        name: true,
+        emoji: true,
+        color: true,
+        updatedAt: true,
+        createdAt: true,
+        events: {
+          where: {
+            createdAt: { gte: firstDayOfMonth },
+          },
+          select: {
+            fields: true,
+            createdAt: true,
+          },
+        },
+        _count: {
+          select: {
+            events: {
+              where: { createdAt: { gte: firstDayOfMonth } },
             },
-            orderBy:{updatedAt:"desc"}
-        })
+          },
+        },
+      },
+      orderBy: { updatedAt: "desc" },
+    });
 
-        const categoriesWithCounts = categories.map((category)=>{
-            const uniqueFieldNames = new Set<string>()
-            let lastPing: Date | null = null
+    const categoriesWithCounts = categories.map((category) => {
+      const uniqueFieldNames = new Set<string>();
+      let lastPing: Date | null = null;
 
-            category.events.forEach((event)=>{
-                Object.keys(event.fields as object).forEach((fieldName)=>{
-                    uniqueFieldNames.add(fieldName)
-                })
-                if (!lastPing || event.createdAt > lastPing) {
-                    lastPing = event.createdAt
-                }
-            })
-
-            return {
-                id: category.id,
-                name: category.name,
-                emoji: category.emoji,
-                color: category.color,
-                updatedAt: category.updatedAt,
-                createdAt: category.createdAt,
-                uniqueFieldCount: uniqueFieldNames.size,
-                eventsCount: category._count.events,
-                lastPing,
-              }
-
-
-        })
-        
-        return c.superjson({categories:categoriesWithCounts})
-    }),
-    deleteCategory:privateProcedure
-    .input(z.object({name:z.string()}))
-    .mutation(async({c,ctx,input})=>{
-        const {name} = input
-        await db.eventCategory.delete({
-            where: { name_userId: { name, userId: ctx.user.id } },
-        })
-
-        return c.json({success : true})
-
-    }),
-    createEventCategory:privateProcedure
-    .input(
-        z.object({
-            name: CATEGORY_NAME_VALIDATOR,
-            color: z
-              .string()
-              .min(1, "Color is required")
-              .regex(/^#[0-9A-F]{6}$/i, "Invalid color format."),
-            emoji: z.string().emoji("Invalid emoji").optional(),
-          })
-    )
-    .mutation(async({c,ctx,input})=>{
-        const {user} = ctx
-        const {name,color,emoji} = input
-        const eventCategory = await db.eventCategory.create({
-            data:{
-                name,
-                color:parseColor(color),
-                emoji,
-                userId:user.id
-            }
-        })
-        return c.json({eventCategory})
-
-    }),
-    insertQuickstartCategories:privateProcedure.mutation(async ({c,ctx}) => {
-        const categories = await db.eventCategory.createMany({
-            data:[
-                {name: "bug", emoji: "🐛", color: 0xff6b6b},
-                { name: "sale", emoji: "💰", color: 0xffeb3b },
-                { name: "question", emoji: "🤔", color: 0x6c5ce7 },
-
-            ].map((category)=>({
-                ...category,
-                userId:ctx.user.id
-            }))
-        })
-        return c.json({success:true,categories})
-
-    }),
-    pollCategory:privateProcedure
-    .input(z.object({name:CATEGORY_NAME_VALIDATOR}))
-    .query(async ({c,ctx,input})=>{
-        const {name} =input
-        const userId = ctx.user.id
-
-        const category = await db.eventCategory.findUnique({
-            where:{
-                name_userId:{name,userId}
-            },
-            include:{
-                _count:{
-                    select:{
-                        events:true
-                    }
-                }
-            }
-        })
-        if (!category) {
-            throw new HTTPException(404, {
-              message: `Category "${name}" not found`,
-            })
+      category.events.forEach((event) => {
+        Object.keys(event.fields as object).forEach((fieldName) => {
+          uniqueFieldNames.add(fieldName);
+        });
+        if (!lastPing || event.createdAt > lastPing) {
+          lastPing = event.createdAt;
         }
+      });
 
-        const hasEvents = category._count.events>0
+      return {
+        id: category.id,
+        name: category.name,
+        emoji: category.emoji,
+        color: category.color,
+        updatedAt: category.updatedAt,
+        createdAt: category.createdAt,
+        uniqueFieldCount: uniqueFieldNames.size,
+        eventsCount: category._count.events,
+        lastPing,
+      };
+    });
 
-        return c.json({hasEvents})
+    return c.superjson({ categories: categoriesWithCounts });
+  }),
+
+  deleteCategory: privateProcedure
+    .input(z.object({ name: z.string() }))
+    .mutation(async ({ c, ctx, input }) => {
+      const { name } = input;
+      await db.eventCategory.delete({
+        where: { name_userId: { name, userId: ctx.user.id } },
+      });
+
+      return c.json({ success: true });
     }),
-    getEventsByCategoryName: privateProcedure
+
+  createEventCategory: privateProcedure
+    .input(
+      z.object({
+        name: CATEGORY_NAME_VALIDATOR,
+        color: z
+          .string()
+          .min(1, "Color is required")
+          .regex(/^#[0-9A-F]{6}$/i, "Invalid color format."),
+        emoji: z.string().emoji("Invalid emoji").optional(),
+      })
+    )
+    .mutation(async ({ c, ctx, input }) => {
+      const { user } = ctx;
+      const { name, color, emoji } = input;
+
+      // 1. Check current category count
+      const categoryCount = await db.eventCategory.count({
+        where: { userId: user.id },
+      });
+
+      // 2. Determine limit based on plan
+      const limit =
+        user.plan === "PRO"
+          ? PRO_QUOTA.maxEventCategories
+          : FREE_QUOTA.maxEventCategories;
+
+      if (categoryCount >= limit) {
+        throw new HTTPException(403, {
+          message: `You have reached the limit of ${limit} categories on your ${user.plan.toLowerCase()} plan. Please upgrade to create more.`,
+        });
+      }
+
+      const eventCategory = await db.eventCategory.create({
+        data: {
+          name,
+          color: parseColor(color),
+          emoji,
+          userId: user.id,
+        },
+      });
+      return c.json({ eventCategory });
+    }),
+
+  insertQuickstartCategories: privateProcedure.mutation(async ({ c, ctx }) => {
+    const { user } = ctx;
+
+    // 1. Check current count before batch inserting
+    const categoryCount = await db.eventCategory.count({
+      where: { userId: user.id },
+    });
+
+    const limit =
+      user.plan === "PRO"
+        ? PRO_QUOTA.maxEventCategories
+        : FREE_QUOTA.maxEventCategories;
+
+    // Quickstart adds 3 categories
+    if (categoryCount + 3 > limit) {
+      throw new HTTPException(403, {
+        message: "Adding quickstart categories would exceed your plan limit.",
+      });
+    }
+
+    const categories = await db.eventCategory.createMany({
+      data: [
+        { name: "bug", emoji: "🐛", color: 0xff6b6b },
+        { name: "sale", emoji: "💰", color: 0xffeb3b },
+        { name: "question", emoji: "🤔", color: 0x6c5ce7 },
+      ].map((category) => ({
+        ...category,
+        userId: user.id,
+      })),
+    });
+
+    return c.json({ success: true, count: categories.count });
+  }),
+
+  pollCategory: privateProcedure
+    .input(z.object({ name: CATEGORY_NAME_VALIDATOR }))
+    .query(async ({ c, ctx, input }) => {
+      const { name } = input;
+      const userId = ctx.user.id;
+
+      const category = await db.eventCategory.findUnique({
+        where: {
+          name_userId: { name, userId },
+        },
+        include: {
+          _count: {
+            select: {
+              events: true,
+            },
+          },
+        },
+      });
+
+      if (!category) {
+        throw new HTTPException(404, {
+          message: `Category "${name}" not found`,
+        });
+      }
+
+      const hasEvents = category._count.events > 0;
+
+      return c.json({ hasEvents });
+    }),
+
+  getEventsByCategoryName: privateProcedure
     .input(
       z.object({
         name: CATEGORY_NAME_VALIDATOR,
@@ -161,24 +199,24 @@ export const categoryRouter = router({
       })
     )
     .query(async ({ c, ctx, input }) => {
-      const { name, page, limit, timeRange } = input
+      const { name, page, limit, timeRange } = input;
 
-      const now = new Date()
-      let startDate: Date
+      const now = new Date();
+      let startDate: Date;
 
       switch (timeRange) {
         case "today":
-          startDate = startOfDay(now)
-          break
+          startDate = startOfDay(now);
+          break;
         case "week":
-          startDate = startOfWeek(now, { weekStartsOn: 0 })
-          break
+          startDate = startOfWeek(now, { weekStartsOn: 0 });
+          break;
         case "month":
-          startDate = startOfMonth(now)
-          break
+          startDate = startOfMonth(now);
+          break;
       }
 
-      const [events, eventsCount, uniqueFieldCount] = await Promise.all([
+      const [events, eventsCount] = await Promise.all([
         db.event.findMany({
           where: {
             EventCategory: { name, userId: ctx.user.id },
@@ -194,34 +232,20 @@ export const categoryRouter = router({
             createdAt: { gte: startDate },
           },
         }),
-        db.event
-          .findMany({
-            where: {
-              EventCategory: { name, userId: ctx.user.id },
-              createdAt: { gte: startDate },
-            },
-            select: {
-              fields: true,
-            },
-            distinct: ["fields"],
-          })
-          .then((events) => {
-            const fieldNames = new Set<string>()
-            events.forEach((event) => {
-              Object.keys(event.fields as object).forEach((fieldName) => {
-                fieldNames.add(fieldName)
-              })
-            })
-            return fieldNames.size
-          }),
-      ])
+      ]);
+
+      // Optimization: Extract unique fields from the fetched events for this page
+      const fieldNames = new Set<string>();
+      events.forEach((event) => {
+        Object.keys(event.fields as object).forEach((fieldName) => {
+          fieldNames.add(fieldName);
+        });
+      });
 
       return c.superjson({
         events,
         eventsCount,
-        uniqueFieldCount,
-      })
+        uniqueFieldCount: fieldNames.size,
+      });
     }),
-    
-    
-})
+});

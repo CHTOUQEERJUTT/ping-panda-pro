@@ -1,5 +1,5 @@
 "use client"
-import React, { useEffect } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { Heading } from '@/components/heading'
 import { LoadingSpinner } from '@/components/loading-spinner'
 import { LucideProps } from 'lucide-react'
@@ -8,24 +8,32 @@ import { useQuery } from '@tanstack/react-query'
 import { client } from '@/lib/client'
 
 function Page() {
-
+  const hasRedirected = useRef(false)  // useRef instead of useState to avoid re-renders
   const router = useRouter()
   
   const { data } = useQuery({
-    queryFn:async () => {
+    queryFn: async () => {
       const res = await client.auth.getDatabaseSyncStatus.$get()
-      return res.json()
+      return await res.json()
     },
-    queryKey:["get-database-sync-status"],
+    queryKey: ["get-database-sync-status"],
     refetchInterval: (query) => {
-      return query.state.data?.isSynced? false : 1000
-
-    }
+      // Stop polling if synced OR if we're already redirecting
+      if (query.state.data?.isSynced || hasRedirected.current) return false
+      return 1000
+    },
+    staleTime: Infinity,      // Don't re-fetch on remount if already synced
+    gcTime: Infinity,         // Keep the cache alive across remounts
+    retry: false,
   })
 
-  useEffect(()=>{
-    if (data?.isSynced) router.push('/dashboard')
-  },[data,router])
+  useEffect(() => {
+  if (data?.isSynced && !hasRedirected.current) {
+    hasRedirected.current = true
+    // Hard navigation instead of client-side — forces Clerk session cookies to be sent fresh
+    window.location.href = "/dashboard"
+  }
+}, [data?.isSynced])
 
   return (
     <div className="flex w-full flex-1 items-center justify-center px-4">
@@ -40,6 +48,8 @@ function Page() {
       </div>
     </div>
   )
+
+  
 }
 const BackgroundPattern = (props: LucideProps) => {
   return (
@@ -141,3 +151,7 @@ const BackgroundPattern = (props: LucideProps) => {
 }
 
 export default Page
+
+
+
+
