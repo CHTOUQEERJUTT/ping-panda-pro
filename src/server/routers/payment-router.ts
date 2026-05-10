@@ -6,7 +6,7 @@ import { HTTPException } from "hono/http-exception"
 import Stripe from "stripe"
 
 export const paymentRouter = router({
-  // Procedure to start the upgrade process (Called from your 'Upgrade' button)
+  // Procedure to start the upgrade process
   createCheckoutSession: privateProcedure.mutation(async ({ c, ctx }) => {
     const { user } = ctx
 
@@ -25,9 +25,9 @@ export const paymentRouter = router({
   }),
 
   // THE WEBHOOK HANDLER
-  // Stripe calls this endpoint directly to confirm payments
+  // This must be a publicProcedure so Stripe can send events to it
   stripeWebhook: publicProcedure.mutation(async ({ c }) => {
-    // CRITICAL: We MUST use .raw.text() for Stripe signature verification
+    // 1. Get the Raw Body (Crucial for signature verification)
     const body = await c.req.raw.text()
     const signature = c.req.header("stripe-signature")
 
@@ -36,12 +36,14 @@ export const paymentRouter = router({
     }
 
     try {
+      // 2. Verify the event came from Stripe
       const event = stripe.webhooks.constructEvent(
         body,
         signature,
         process.env.STRIPE_WEBHOOK_SECRET ?? ""
       )
 
+      // 3. Handle successful payments
       if (event.type === "checkout.session.completed") {
         const session = event.data.object as Stripe.Checkout.Session
         const userId = session.metadata?.userId
@@ -50,7 +52,7 @@ export const paymentRouter = router({
           throw new HTTPException(400, { message: "Missing userId in metadata" })
         }
 
-        // Update the user to PRO in your Neon database
+        // 4. Update the user to PRO in your database
         await db.user.update({
           where: { id: userId },
           data: { plan: "PRO" },
@@ -59,7 +61,7 @@ export const paymentRouter = router({
 
       return c.json({ success: true })
     } catch (err) {
-      console.error("Webhook Error:", err)
+      console.error("Webhook Verification Failed:", err instanceof Error ? err.message : err)
       throw new HTTPException(400, { message: "Invalid webhook signature" })
     }
   }),

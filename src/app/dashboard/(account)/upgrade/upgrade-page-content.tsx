@@ -88,7 +88,7 @@ export const UpgradePageContent = ({ plan }: { plan: Plan }) => {
             className="inline cursor-pointer underline text-brand-600"
           >
             {" "}
-            or upgrade now to increase your limit &rarr;
+            or to increase your limit &rarr;
           </button>
         ) : null}
       </p>
