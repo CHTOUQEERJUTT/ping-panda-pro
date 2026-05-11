@@ -20,8 +20,10 @@ export const PaymentSuccessModal = () => {
       return await res.json()
     },
     refetchInterval: (query) => {
-      return query.state.data?.plan === "PRO" ? false : 1000
-    },
+  if (query.state.data?.plan === "PRO") return false
+  if (query.state.dataUpdatedAt < Date.now() - 60000) return false
+  return 3000
+},
   })
 
   const handleClose = () => {
