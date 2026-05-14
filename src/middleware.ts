@@ -1,18 +1,18 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
-// Define which routes are public
+// Define which routes are public (unprotected)
 const isPublicRoute = createRouteMatcher([
   '/', 
   '/welcome', 
   '/sign-in(.*)', 
   '/sign-up(.*)',
   '/v1/events',
-  '/api/payment/stripeWebhook',
+  '/stripe-webhook', // Add this to allow Stripe to hit the endpoint
   '/api/auth/getDatabaseSyncStatus' 
 ])
 
 export default clerkMiddleware(async (auth, request) => {
-  // auth is a Promise, so we must await it to access .protect()
+  // If the route is NOT public, protect it
   if (!isPublicRoute(request)) {
     await auth.protect()
   }
